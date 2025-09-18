@@ -1,0 +1,761 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Reloverse — Toaster RPG</title>
+<style>
+  :root{
+    --bg:#0b1020; --panel:#111428; --accent:#ffb86b; --muted:#9aa3c7;
+    --card:#0f1726; --good:#8be385; --bad:#ff7b7b;
+    --glass: rgba(255,255,255,0.03);
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; min-height:100vh; background:
+      radial-gradient(ellipse at 10% 10%, rgba(255,184,107,0.06), transparent 10%),
+      linear-gradient(180deg,#071026 0%, #07121a 50%, #08151f 100%); color:#e8eefc;
+    display:flex; align-items:flex-start; justify-content:center; padding:24px;
+  }
+
+  .app{width:1000px; max-width:100%; display:grid; grid-template-columns:360px 1fr; gap:20px;}
+  .panel{background:linear-gradient(180deg,var(--panel), #081026); border-radius:12px; padding:14px; box-shadow: 0 6px 30px rgba(2,6,23,0.7);}
+
+  .status{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px;}
+  .stat{background:var(--glass); padding:8px 12px; border-radius:8px; font-size:13px;}
+  .title{font-weight:700; letter-spacing:0.6px; color:var(--accent); margin-bottom:8px;}
+
+  /* Room view */
+  .room{height:640px; display:flex; flex-direction:column; gap:12px;}
+  .room-scene{flex:1; background:linear-gradient(180deg,#091428,#071228); border-radius:10px; padding:12px; display:flex; gap:12px; position:relative; overflow:hidden;}
+  .room-left, .room-right{flex:1; display:flex; flex-direction:column; gap:12px; padding:12px;}
+  .object{background:linear-gradient(180deg,#0b1b2a,#0e2435); border-radius:10px; padding:12px; cursor:pointer; border:1px solid rgba(255,255,255,0.03);}
+  .object h3{margin:0 0 8px 0; font-size:15px; color:var(--accent)}
+  .object p{margin:0; color:var(--muted); font-size:13px}
+
+  /* Toaster sprite */
+  .toaster{
+    width:140px; height:140px; border-radius:18px; background:linear-gradient(180deg,#fff9d8,#ffd89a); position:absolute; right:36px; bottom:36px; display:flex; align-items:center; justify-content:center; box-shadow:0 20px 40px rgba(0,0,0,0.5);
+    transform-origin:center center; transition:transform .18s ease;
+    border:4px solid rgba(0,0,0,0.12);
+  }
+  .toaster .face{font-size:44px; filter:drop-shadow(0 6px 10px rgba(0,0,0,0.25))}
+  .toaster.levelup{animation:pop .6s ease}
+  @keyframes pop{0%{transform:scale(0.6)}50%{transform:scale(1.12)}100%{transform:scale(1)}}
+
+  /* HUD / Action area */
+  .hud{padding:12px; display:flex; gap:8px; align-items:center; justify-content:space-between;}
+  .moves{display:flex; gap:8px; flex-wrap:wrap;}
+  .btn{background:linear-gradient(180deg,#12203a,#081224); color:#dfe9ff; padding:8px 12px; border-radius:8px; border:1px solid rgba(255,255,255,0.04); cursor:pointer}
+  .btn.danger{background:linear-gradient(180deg,#3b0b0b,#2b0606); color:#ffd6d6}
+
+  /* Fight area */
+  .battle-log{height:180px; overflow:auto; background:linear-gradient(180deg,#071228,#071226); padding:10px; border-radius:8px; font-size:13px; color:var(--muted)}
+  .enemy{display:flex; gap:12px; align-items:center}
+  .enemy .avatar{width:80px; height:80px; border-radius:10px; background:linear-gradient(180deg,#ffd1d1,#ff7b7b); display:flex; align-items:center; justify-content:center; font-size:32px}
+  .enemy .meta{color:var(--muted)}
+
+  /* Modal */
+  .modal{position:fixed; left:0; right:0; top:0; bottom:0; display:flex; align-items:center; justify-content:center; background:linear-gradient(180deg, rgba(3,7,15,0.6), rgba(3,7,15,0.9)); z-index:80}
+  .card{background:linear-gradient(180deg,#0d1723,#071025); padding:18px; border-radius:12px; width:720px; max-width:94%; color:#eaf2ff; box-shadow:0 20px 60px rgba(2,6,23,0.8)}
+  .center{display:flex; align-items:center; justify-content:center; flex-direction:column; gap:12px}
+
+  .meter{height:10px; background:rgba(255,255,255,0.06); border-radius:6px; overflow:hidden}
+  .meter > i{display:block; height:100%; background:linear-gradient(90deg,var(--accent),#ffd2a3)}
+
+  .small{font-size:13px; color:var(--muted)}
+  .footer{display:flex; justify-content:space-between; gap:12px; margin-top:6px}
+  footer small{color:var(--muted)}
+  /* Minigame arrows */
+  .arrowRow{display:flex; gap:8px; justify-content:center; margin-top:10px;}
+  .arrow{width:64px; height:64px; border-radius:8px; background:rgba(255,255,255,0.03); display:flex; align-items:center; justify-content:center; font-size:28px; color:#dcefff; border:2px solid rgba(255,255,255,0.02)}
+  .success{outline:4px solid rgba(139,227,133,0.14)}
+  .fail{outline:4px solid rgba(255,123,123,0.14)}
+  /* small responsive */
+  @media (max-width:880px){ .app{grid-template-columns:1fr;}}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="panel">
+    <div class="title">Reloverse — Toaster RPG</div>
+    <div class="status" id="statusRow">
+      <div class="stat">Day: <strong id="day">1</strong></div>
+      <div class="stat">Level: <strong id="level">1</strong></div>
+      <div class="stat">XP: <strong id="xp">0</strong>/<span id="xpToNext">20</span></div>
+      <div class="stat">Grade: <strong id="grade">70</strong>%</div>
+    </div>
+
+    <div class="room">
+      <div class="room-scene">
+        <div class="room-left">
+          <div class="object" id="desk">
+            <h3>Desk — Study / Minigame</h3>
+            <p>Fight study minigames to improve your grade. Win sequences to earn grade points and xp.</p>
+          </div>
+
+          <div class="object" id="bed">
+            <h3>Bed — Rest & Movies</h3>
+            <p>Sleep to restore health, watch a toaster-themed movie (tiny cutscene) to gain inspiration.</p>
+          </div>
+        </div>
+
+        <div class="room-right">
+          <div class="object" id="inventory">
+            <h3>Inventory</h3>
+            <p id="invText">Toaster crumb, Old game cartridge</p>
+          </div>
+
+          <div class="object" id="door">
+            <h3>Door — Leave to School</h3>
+            <p>Walk out and face today's school-themed boss. Difficulty scales each day.</p>
+          </div>
+        </div>
+
+        <div class="toaster" id="playerEl" title="You: Toasty">
+          <div class="face">🍞</div>
+        </div>
+      </div>
+
+      <div class="hud">
+        <div>
+          <div class="small">HP <span id="hpText">30</span>/<span id="maxHpText">30</span></div>
+          <div class="meter" style="width:220px"><i id="hpBar" style="width:100%"></i></div>
+        </div>
+
+        <div class="moves" id="movesArea">
+          <!-- Buttons for moves injected here -->
+        </div>
+
+        <div style="display:flex; gap:8px">
+          <button class="btn" id="saveBtn">Save</button>
+          <button class="btn" id="resetBtn">Reset</button>
+        </div>
+      </div>
+
+      <div style="margin-top:8px">
+        <div class="battle-log" id="log">Welcome to Reloverse. Click Desk to study, Bed to rest, Door to fight a boss.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel" style="display:flex; flex-direction:column;">
+    <div class="title">Battle & Progress</div>
+    <div style="display:flex; gap:10px; align-items:center; margin-bottom:8px;">
+      <div class="enemy" id="enemyInfo">
+        <div class="avatar" id="enemyAvatar">🏫</div>
+        <div class="meta">
+          <div id="enemyName">No enemy</div>
+          <div class="small">HP <span id="enemyHp">-</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="display:flex; flex-direction:column; gap:10px;">
+      <div id="actionArea">
+        <div class="small">No active battle. Use Desk to play minigames or Door to fight the school boss.</div>
+      </div>
+
+      <div class="footer">
+        <div>
+          <button class="btn" id="autoBtn">Auto-fight (toggle)</button>
+        </div>
+        <div>
+          <small>Save is automatic on actions. Local progress stored to browser.</small>
+        </div>
+      </div>
+    </div>
+
+    <div style="margin-top:12px; text-align:center;">
+      <small class="small">Toaster-themed moves and movies. Made with love for crunchy adventures.</small>
+    </div>
+  </div>
+</div>
+
+<!-- Modals -->
+<div id="modalRoot" style="display:none"></div>
+
+<script>
+/* ============================
+   Reloverse — core game logic
+   ============================ */
+
+const defaultData = {
+  day: 1,
+  level: 1,
+  xp: 0,
+  xpToNext: 20,
+  grade: 70,
+  maxHp: 30,
+  hp: 30,
+  moves: [
+    { id:'toastBlast', name:'Toast Blast', desc:'Small hot bread shot', power:6, unlocked:true },
+  ],
+  unlockedMovesOrder: ['toastBlast'],
+  inventory: ['Toaster crumb','Old game cartridge'],
+  autoFight:false
+};
+
+let state = loadState();
+
+const ui = {
+  day: document.getElementById('day'),
+  level: document.getElementById('level'),
+  xp: document.getElementById('xp'),
+  xpToNext: document.getElementById('xpToNext'),
+  grade: document.getElementById('grade'),
+  hpText: document.getElementById('hpText'),
+  maxHpText: document.getElementById('maxHpText'),
+  hpBar: document.getElementById('hpBar'),
+  movesArea: document.getElementById('movesArea'),
+  log: document.getElementById('log'),
+  enemyName: document.getElementById('enemyName'),
+  enemyHp: document.getElementById('enemyHp'),
+  enemyAvatar: document.getElementById('enemyAvatar'),
+  actionArea: document.getElementById('actionArea'),
+  invText: document.getElementById('invText'),
+  playerEl: document.getElementById('playerEl'),
+  modalRoot: document.getElementById('modalRoot'),
+  saveBtn: document.getElementById('saveBtn'),
+  resetBtn: document.getElementById('resetBtn'),
+  desk: document.getElementById('desk'),
+  bed: document.getElementById('bed'),
+  door: document.getElementById('door'),
+  autoBtn: document.getElementById('autoBtn'),
+  saveLocal: () => localStorage.setItem('reloverse_v1', JSON.stringify(state)),
+};
+
+let battle = null; // active battle object if any
+
+function loadState(){
+  try {
+    const raw = localStorage.getItem('reloverse_v1');
+    if(raw) return JSON.parse(raw);
+  } catch(e){}
+  return JSON.parse(JSON.stringify(defaultData));
+}
+
+function saveState(){
+  ui.saveLocal();
+  log("Game saved.");
+}
+
+function resetGame(){
+  if(!confirm('Reset all progress?')) return;
+  localStorage.removeItem('reloverse_v1');
+  state = loadState();
+  updateUI();
+  log("Progress reset.");
+}
+
+function log(...msgs){
+  const text = msgs.join(' ');
+  const time = new Date().toLocaleTimeString();
+  ui.log.innerHTML = `<div style="margin-bottom:6px">[${time}] ${escapeHtml(text)}</div>` + ui.log.innerHTML;
+}
+
+function escapeHtml(s){ return String(s).replace(/[&<>]/g, c=> ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+
+function updateUI(){
+  ui.day.textContent = state.day;
+  ui.level.textContent = state.level;
+  ui.xp.textContent = state.xp;
+  ui.xpToNext.textContent = state.xpToNext;
+  ui.grade.textContent = Math.max(0, Math.min(100, Math.round(state.grade)));
+  ui.hpText.textContent = state.hp;
+  ui.maxHpText.textContent = state.maxHp;
+  const pct = Math.max(0, Math.min(100, (state.hp/state.maxHp)*100));
+  ui.hpBar.style.width = pct + "%";
+  ui.invText.textContent = state.inventory.join(', ');
+
+  // moves buttons
+  ui.movesArea.innerHTML = '';
+  for(const mv of state.moves){
+    if(!mv.unlocked) continue;
+    const b = document.createElement('button');
+    b.className = 'btn';
+    b.textContent = mv.name;
+    b.title = mv.desc + ' — power ' + mv.power;
+    b.onclick = ()=> useMove(mv);
+    ui.movesArea.appendChild(b);
+  }
+
+  ui.playerEl.classList.toggle('levelup', false);
+
+  // update enemy UI if in battle
+  if(battle){
+    ui.enemyName.textContent = battle.enemy.name + ' (Day '+ state.day +')';
+    ui.enemyHp.textContent = battle.enemy.hp + '/' + battle.enemy.maxHp;
+    ui.enemyAvatar.textContent = battle.enemy.icon;
+    ui.actionArea.innerHTML = '';
+    // show quick action buttons
+    const btn = document.createElement('div');
+    btn.innerHTML = `<div style="display:flex; gap:8px; flex-wrap:wrap"></div>`;
+    const wrap = btn.firstChild;
+    for(const mv of state.moves.filter(m=>m.unlocked)){
+      const mb = document.createElement('button');
+      mb.className='btn';
+      mb.textContent = mv.name;
+      mb.onclick = ()=> { playerAttack(mv); };
+      wrap.appendChild(mb);
+    }
+    const run = document.createElement('button');
+    run.className='btn danger';
+    run.textContent = 'Run (Retreat)';
+    run.onclick = ()=> endBattle(false, 'retreat');
+    wrap.appendChild(run);
+    ui.actionArea.appendChild(btn);
+  } else {
+    ui.enemyName.textContent = 'No enemy';
+    ui.enemyHp.textContent = '-';
+    ui.enemyAvatar.textContent = '🏫';
+    ui.actionArea.innerHTML = `<div class="small">No active battle. Use Desk or Door.</div>`;
+  }
+  ui.saveLocal();
+}
+
+/* =====================
+   Leveling & Moves
+   ===================== */
+
+function addXp(amount){
+  state.xp += amount;
+  log(`Gained ${amount} XP.`);
+  while(state.xp >= state.xpToNext){
+    state.xp -= state.xpToNext;
+    levelUp();
+  }
+  updateUI();
+}
+
+function levelUp(){
+  state.level += 1;
+  state.maxHp += 6;
+  state.hp = state.maxHp; // heal on level
+  state.xpToNext = Math.round(state.xpToNext * 1.35);
+  // unlock move at certain levels
+  const unlocks = {
+    2: { id:'crumbShield', name:'Crumb Shield', desc:'Raise crumb shield, reduces damage', power:0 },
+    4: { id:'popUpSurprise', name:'Pop-Up Surprise', desc:'High crit chance toaster pop-up', power:14 },
+    6: { id:'butterSlip', name:'Butter Slip', desc:'Slippery butter — chance to dodge', power:10 }
+  };
+  const unlock = unlocks[state.level];
+  if(unlock){
+    unlockMove(unlock);
+    showModal(`<div style="font-size:28px">✨ New Move Unlocked!</div><div style="margin-top:8px"><strong>${unlock.name}</strong><div class="small">${unlock.desc}</div></div>`);
+  }
+  ui.playerEl.classList.add('levelup');
+  log(`Level up! Reached level ${state.level}.`);
+}
+
+/* unlock a move into state.moves */
+function unlockMove(m){
+  if(state.moves.some(x=>x.id===m.id)) {
+    const mm = state.moves.find(x=>x.id===m.id);
+    mm.unlocked = true;
+  } else {
+    state.moves.push({...m, unlocked:true});
+  }
+  state.unlockedMovesOrder.push(m.id);
+}
+
+/* =====================
+   Battles
+   ===================== */
+
+function createBossForDay(day){
+  // school-themed bosses with scaling
+  // change name/icon/abilities based on day
+  const hp = 30 + (day-1)*12;
+  const atk = 6 + Math.floor((day-1)*2.2);
+  const name = ['Principal Parch','The Homework Hydra','Detention Drum','Quizmaster Quill'][ (day-1) % 4 ] || 'School Menace';
+  const icon = ['👨‍🏫','🦖','🥁','✒️'][ (day-1) % 4 ] || '🏫';
+  return {
+    name: name,
+    icon: icon,
+    hp: hp,
+    maxHp: hp,
+    atk: atk,
+    day: day
+  };
+}
+
+function startBattle(vs){
+  if(battle) return;
+  battle = {
+    enemy: vs,
+    turn: 'player'
+  };
+  log(`Encounter! ${vs.name} appears!`);
+  updateUI();
+  if(state.autoFight) {
+    autoBattleLoop();
+  }
+}
+
+function endBattle(won, reason){
+  if(!battle) return;
+  if(won){
+    log(`You defeated ${battle.enemy.name}!`);
+    // rewards
+    const xpGain = 8 + Math.round(battle.enemy.maxHp/6) + (state.day-1)*2;
+    addXp(xpGain);
+    // grade improves
+    const gradeGain = 2 + Math.round(state.day/3);
+    state.grade = Math.min(100, state.grade + gradeGain);
+    // advance day if boss fight (door)
+    if(reason === 'boss'){
+      state.day += 1;
+      showModal(`<div style="font-size:20px">Victory! Day advanced to ${state.day}.</div><div class="small">A toaster-themed short played in your mind. 🍞🎬</div>`);
+    }
+  } else {
+    log(`Battle ended: ${reason || 'defeat'}`);
+    // penalty
+    state.hp = Math.max(1, Math.round(state.hp*0.6));
+    state.grade = Math.max(0, state.grade - 4);
+  }
+  battle = null;
+  updateUI();
+  ui.saveLocal();
+}
+
+function enemyAttack(){
+  if(!battle) return;
+  const e = battle.enemy;
+  let dmg = e.atk + Math.floor(Math.random()*4) - Math.floor(state.level/3);
+  if(dmg < 1) dmg = 1;
+  // check for crumb shield
+  const shield = state.moves.find(m=>m.id==='crumbShield' && m.unlocked);
+  if(shield && Math.random() < 0.18){
+    dmg = Math.max(0, dmg - 6);
+    log('Crumb Shield reduced incoming damage!');
+  }
+  state.hp -= dmg;
+  log(`${e.name} hits for ${dmg} damage.`);
+  if(state.hp <= 0){
+    state.hp = 0;
+    updateUI();
+    log('Toaster has been toasted! You lost the battle.');
+    endBattle(false,'defeat');
+  } else {
+    updateUI();
+  }
+}
+
+function playerAttack(move){
+  if(!battle) return;
+  const m = move;
+  // compute damage with small random and level scaling
+  let base = m.power + Math.floor(state.level * 1.4) + Math.floor(Math.random()*4);
+  // special effects
+  if(m.id === 'popUpSurprise' && Math.random() < 0.33){
+    base *= 2;
+    log('Pop-Up Surprise critical!');
+  }
+  if(m.id === 'butterSlip' && Math.random() < 0.25){
+    // avoid incoming attack right away
+    log('Butter Slip evaded the next attack!');
+    battle.evadeNext = true;
+  }
+  battle.enemy.hp -= base;
+  log(`You used ${m.name} — dealt ${base} damage.`);
+  if(battle.enemy.hp <= 0){
+    endBattle(true, battle.enemy.isBoss ? 'boss' : 'monster');
+  } else {
+    // enemy turn
+    if(battle.evadeNext){
+      log(`${battle.enemy.name} attacks but you slipped away!`);
+      battle.evadeNext = false;
+    } else {
+      setTimeout(enemyAttack, 650);
+    }
+  }
+  updateUI();
+}
+
+function useMove(mv){
+  // quick action from HUD — if not in battle, do a small effect e.g. 'Toast Blast' as practice
+  if(!battle){
+    // small practice action
+    const dmg = mv.power + Math.floor(Math.random()*3);
+    log(`You practice ${mv.name} and feel more prepared (+${Math.max(1, Math.floor(dmg/2))} XP).`);
+    addXp(Math.max(1, Math.floor(dmg/2)));
+    // tiny chance to find crumb
+    if(Math.random() < 0.12){
+      state.inventory.push('Fresh Crumb');
+      log('Found a Fresh Crumb!');
+    }
+    updateUI();
+  } else {
+    playerAttack(mv);
+  }
+}
+
+/* =====================
+   Desk Minigame
+   ===================== */
+
+function playDeskMinigame(){
+  // simple quick-time arrow sequence — success grants grade/xp
+  const arrows = ['▲','▶','▼','◀'];
+  const seqLen = 4 + Math.floor(Math.random()*2);
+  const seq = Array.from({length:seqLen}, ()=>arrows[Math.floor(Math.random()*arrows.length)]);
+  showModalMinigame(seq, (successCount)=>{
+    const gradeGain = 3 * successCount;
+    const xpGain = 5 * successCount;
+    state.grade = Math.min(100, state.grade + gradeGain);
+    addXp(xpGain);
+    log(`Desk minigame: ${successCount}/${seqLen} hits. Grade +${gradeGain}, XP +${xpGain}.`);
+    saveState();
+  });
+}
+
+/* Modal helpers */
+
+function showModal(html){
+  ui.modalRoot.innerHTML = '';
+  const el = document.createElement('div');
+  el.className = 'modal';
+  el.innerHTML = `<div class="card center">${html}<div><button class="btn" id="closeModal">Close</button></div></div>`;
+  ui.modalRoot.appendChild(el);
+  ui.modalRoot.style.display = 'block';
+  document.getElementById('closeModal').onclick = ()=> { ui.modalRoot.style.display='none'; ui.modalRoot.innerHTML=''; };
+}
+
+function showModalCutscene(lines){
+  // toaster-themed movie / cutscene: lines array
+  ui.modalRoot.innerHTML = '';
+  const el = document.createElement('div');
+  el.className = 'modal';
+  const content = document.createElement('div');
+  content.className = 'card center';
+  const stage = document.createElement('div');
+  stage.style.width='100%';
+  stage.style.minHeight='140px';
+  stage.style.display='flex';
+  stage.style.alignItems='center';
+  stage.style.justifyContent='center';
+  stage.style.flexDirection='column';
+  stage.style.gap='10px';
+  content.appendChild(stage);
+  const btn = document.createElement('div');
+  btn.innerHTML = `<button class="btn" id="endMovie">End Movie</button>`;
+  content.appendChild(btn);
+  el.appendChild(content);
+  ui.modalRoot.appendChild(el);
+  ui.modalRoot.style.display = 'block';
+
+  let idx = 0;
+  function showNext(){
+    if(idx >= lines.length) { close(); return; }
+    stage.innerHTML = `<div style="font-size:32px">🍞</div><div style="font-weight:700; font-size:18px">${escapeHtml(lines[idx])}</div>`;
+    idx++;
+    setTimeout(showNext, 1500);
+  }
+  showNext();
+
+  function close(){
+    ui.modalRoot.style.display='none';
+    ui.modalRoot.innerHTML='';
+  }
+  document.getElementById('endMovie').onclick = close;
+}
+
+function showModalMinigame(seq, cb){
+  ui.modalRoot.innerHTML = '';
+  const el = document.createElement('div');
+  el.className='modal';
+  const card = document.createElement('div');
+  card.className='card';
+  const title = document.createElement('div');
+  title.innerHTML = `<div style="font-size:18px">Study Minigame</div><div class="small">Press the correct keys in time!</div>`;
+  card.appendChild(title);
+  const arrowsRow = document.createElement('div');
+  arrowsRow.style.marginTop='12px';
+  card.appendChild(arrowsRow);
+
+  const seqWrap = document.createElement('div');
+  seqWrap.className='arrowRow';
+  card.appendChild(seqWrap);
+
+  // show instruction
+  const info = document.createElement('div');
+  info.className='small';
+  info.style.marginTop='10px';
+  info.textContent = 'Use W A S D or Arrow Keys for ▲ ◀ ▼ ▶';
+  card.appendChild(info);
+
+  const closeRow = document.createElement('div');
+  closeRow.style.marginTop='12px';
+  closeRow.innerHTML = '<div style="display:flex; gap:8px; justify-content:center"><button class="btn" id="quitMini">Quit</button></div>';
+  card.appendChild(closeRow);
+
+  el.appendChild(card);
+  ui.modalRoot.appendChild(el);
+  ui.modalRoot.style.display='block';
+
+  const mapping = { 'ArrowUp':'▲','ArrowDown':'▼','ArrowLeft':'◀','ArrowRight':'▶','w':'▲','s':'▼','a':'◀','d':'▶'};
+
+  // build UI arrows
+  seq.forEach(s=>{
+    const a = document.createElement('div');
+    a.className='arrow';
+    a.textContent = s;
+    seqWrap.appendChild(a);
+  });
+
+  let idx=0, successes=0, active=false;
+  function highlightNext(){
+    seqWrap.childNodes.forEach((n,i)=>n.classList.remove('success','fail'));
+    if(idx >= seq.length) return finish();
+    seqWrap.childNodes[idx].classList.add('active');
+    active=true;
+  }
+
+  function finish(){
+    window.removeEventListener('keydown', handler);
+    document.getElementById('quitMini').onclick = ()=> { ui.modalRoot.style.display='none'; ui.modalRoot.innerHTML=''; };
+    ui.modalRoot.style.display='none';
+    ui.modalRoot.innerHTML='';
+    if(cb) cb(successes);
+  }
+
+  function handler(e){
+    const key = e.key;
+    const expected = seq[idx];
+    const got = mapping[key] || null;
+    if(!got) return;
+    active=false;
+    const node = seqWrap.childNodes[idx];
+    if(got === expected){
+      node.classList.add('success');
+      successes++;
+    } else {
+      node.classList.add('fail');
+    }
+    idx++;
+    if(idx < seq.length){
+      setTimeout(highlightNext, 420);
+    } else {
+      setTimeout(finish, 520);
+    }
+  }
+  window.addEventListener('keydown', handler);
+  highlightNext();
+}
+
+/* =====================
+   Door / Boss logic
+   ===================== */
+
+function goToDoor(){
+  // if already in battle, ignore
+  if(battle) { log('You are already in a fight.'); return; }
+  const boss = createBossForDay(state.day);
+  boss.isBoss = true;
+  startBattle(boss);
+}
+
+/* =====================
+   Bed / Movies / Rest
+   ===================== */
+
+function useBed(){
+  // restore some HP and optional toaster movie
+  const heal = Math.min(state.maxHp - state.hp, Math.max(6, Math.round(state.maxHp*0.35)));
+  state.hp += heal;
+  state.grade = Math.min(100, state.grade + 1);
+  log(`You slept. Restored ${heal} HP. Grade +1.`);
+  // random toaster-themed 'movie' cutscene
+  const clips = [
+    ['A warm slice drifts through pixel clouds.','Dream of the perfect crunch.','You feel inspired!'],
+    ['Old game cartridge hums.','Arcade toasts appear on screen.','You remember a secret combo.'],
+    ['A butter comet streaks by.','You learn to butter with style.','New strategy dawns.']
+  ];
+  const clip = clips[Math.floor(Math.random()*clips.length)];
+  showModalCutscene(clip);
+  updateUI();
+  saveState();
+}
+
+/* =====================
+   Auto-fight loop
+   ===================== */
+
+function autoBattleLoop(){
+  if(!state.autoFight || !battle) return;
+  if(battle.turn === 'player'){
+    const usable = state.moves.filter(m=>m.unlocked);
+    const choice = usable[Math.floor(Math.random()*usable.length)];
+    playerAttack(choice);
+  }
+  // schedule next
+  setTimeout(()=> {
+    if(state.autoFight && battle) autoBattleLoop();
+  }, 900);
+}
+
+/* =====================
+   Event binding
+   ===================== */
+
+document.getElementById('saveBtn').onclick = saveState;
+document.getElementById('resetBtn').onclick = resetGame;
+
+document.getElementById('desk').onclick = ()=> playDeskMinigame();
+document.getElementById('bed').onclick = ()=> useBed();
+document.getElementById('door').onclick = ()=> { goToDoor(); };
+
+ui.autoBtn.onclick = ()=> {
+  state.autoFight = !state.autoFight;
+  ui.autoBtn.textContent = state.autoFight ? 'Auto-fight: ON' : 'Auto-fight (toggle)';
+  if(state.autoFight && battle) autoBattleLoop();
+  ui.saveLocal();
+};
+
+function saveState(){
+  ui.saveLocal();
+}
+
+window.addEventListener('beforeunload', ()=> ui.saveLocal());
+document.getElementById('resetBtn').addEventListener('click', ()=> {}); // already bound above
+
+// Expose useMove to buttons
+function useMoveFromButton(id){
+  const mv = state.moves.find(m=>m.id===id);
+  if(mv) useMove(mv);
+}
+
+/* Initial unlocks: ensure default moves present */
+(function bootstrap(){
+  // ensure moves array includes known defaults even if loaded from older version
+  const known = [
+    { id:'toastBlast', name:'Toast Blast', desc:'Small hot bread shot', power:6 },
+    { id:'crumbShield', name:'Crumb Shield', desc:'Raise crumb shield, reduces damage', power:0 },
+    { id:'popUpSurprise', name:'Pop-Up Surprise', desc:'High crit chance toaster pop-up', power:14 },
+    { id:'butterSlip', name:'Butter Slip', desc:'Slippery butter — chance to dodge', power:10 }
+  ];
+  for(const k of known){
+    if(!state.moves.find(m=>m.id===k.id)){
+      // don't auto-unlock others
+      if(k.id === 'toastBlast'){
+        state.moves.push({...k, unlocked:true});
+      } else {
+        state.moves.push({...k, unlocked:false});
+      }
+    }
+  }
+  updateUI();
+  log('Game loaded. Ready to play!');
+})();
+
+/* Utilities: small tutorial prompt once */
+if(!localStorage.getItem('reloverse_seen_tutorial')){
+  localStorage.setItem('reloverse_seen_tutorial','1');
+  showModal(`<div style="font-size:20px">Welcome to Reloverse</div>
+  <div class="small" style="margin-top:8px">You are a toaster who loves games. Click Desk to study, Bed to rest (and watch toaster movies), and Door to face the school boss. Level up to unlock toaster-themed moves. Save is automatic.</div>`);
+}
+</script>
+</body>
+</html>
